@@ -1,0 +1,3 @@
+// refactor all display code
+// SDL_FontCache???
+// dynamic windows size (render sample text "0x0000" and "V0=0x0000")
