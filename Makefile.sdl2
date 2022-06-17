@@ -1,0 +1,19 @@
+EXE = chip8.sdl2
+
+SOURCES = main.cpp chip8.cpp sdl2_chip8.cpp
+OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+
+CXXFLAGS = -I./include -g -Wall -Wformat -DSDL2
+LIBS = `sdl2-config --libs` -lSDL2_ttf
+
+%.o:%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+all: $(EXE)
+	@echo Build complete for $(EXE)
+
+$(EXE): $(OBJS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
+
+clean:
+	rm -f $(EXE) $(OBJS)

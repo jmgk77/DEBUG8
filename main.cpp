@@ -17,7 +17,8 @@
 #include "debug8.h"
 #endif
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
 #if defined(CONSOLE)
   ncurses_chip8 c8;
 #elif defined(SDL1)
@@ -30,7 +31,8 @@ int main(int argc, char *argv[]) {
 
   // handle cmdline
   char *rom = argv[1];
-  if (!rom) {
+  if (!rom)
+  {
     printf("USAGE: %s <rom>\n", (char *)argv[0]);
     // exit(-1);
     rom = (char *)"TEST/c8_test.c8";
@@ -38,7 +40,8 @@ int main(int argc, char *argv[]) {
 
   // load ROM
   printf("LOADING ROM (%s)\n", rom);
-  if (!c8.load(rom)) {
+  if (!c8.load(rom))
+  {
     printf("ERROR: cant read ROM\n");
     exit(-1);
   }
@@ -51,12 +54,14 @@ int main(int argc, char *argv[]) {
 
   // sdl loop
   bool quit = false;
-  while (!quit) {
+  while (!quit)
+  {
     //
     framerate = c8.get_ticks();
 
     // keep FPS
-    if ((framerate - framerate_old) > 1000 / FRAMERATE) {
+    if ((framerate - framerate_old) > 1000 / FRAMERATE)
+    {
       framerate_old = framerate;
       quit = c8.handle_input();
 #ifdef DEBUG
@@ -67,7 +72,9 @@ int main(int argc, char *argv[]) {
       {
         c8.show_display();
       }
-    } else {
+    }
+    else
+    {
       // Wait remaining time
       c8.delay((1000 / FRAMERATE) - (framerate - framerate_old));
     }

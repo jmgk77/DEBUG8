@@ -5,8 +5,9 @@
 
 #include "sdl2_chip8.h"
 
-class debug8 : public sdl2_chip8 {
- private:
+class debug8 : public sdl2_chip8
+{
+private:
   void show_help();
   void dump_stack();
   void dump_registers();
@@ -23,10 +24,15 @@ class debug8 : public sdl2_chip8 {
   TTF_Font *font;
   uint16_t mem_ptr = 0;
 
-  enum { BREAKPOINT_MEMORY, BREAKPOINT_CODE };
+  enum
+  {
+    BREAKPOINT_MEMORY,
+    BREAKPOINT_CODE
+  };
   uint16_t brk_ptr = 0;
 
-  struct _brk {
+  struct _brk
+  {
     uint16_t ptr;
     uint8_t type;
   };
@@ -39,21 +45,30 @@ class debug8 : public sdl2_chip8 {
 
   uint8_t *backup_rom;
 
-  enum { MAIN, REGISTERS, STACK, MEMORY, DISASM, BRK_LIST, WND_SIZE };
+  enum
+  {
+    MAIN,
+    REGISTERS,
+    STACK,
+    MEMORY,
+    DISASM,
+    BRK_LIST,
+    WND_SIZE
+  };
 
-  struct {
+  struct
+  {
     const char *title;
     uint16_t w;
     uint16_t h;
-  } wnd_data[WND_SIZE] = {{"DEBUG8", 640, 320},      {"REGISTERS", 875, 63},
-                          {"STACK", 100, 336},       {"MEMORY", 565, 210},
-                          {"DISASSEMBLY", 320, 320}, {"BREAKPOINTS", 100, 336}};
+  } wnd_data[WND_SIZE] = {{"DEBUG8", 640, 320}, {"REGISTERS", 875, 63}, {"STACK", 100, 336}, {"MEMORY", 565, 210}, {"DISASSEMBLY", 320, 320}, {"BREAKPOINTS", 100, 336}};
 
   const char *exception_text[4] = {"NO_EXCEPTION", "EXCEPTION_UNKNOWN_OPCODE",
                                    "EXCEPTION_STACK_UNDERFLOW",
                                    "EXCEPTION_STACK_OVERFLOW"};
 
-  struct {
+  struct
+  {
     SDL_Window *w[WND_SIZE];
     SDL_Renderer *r[WND_SIZE];
     int x[WND_SIZE];
@@ -65,7 +80,7 @@ class debug8 : public sdl2_chip8 {
 
   uint16_t last_break = -1;
 
- public:
+public:
   void init_screen();
   void end_screen();
   bool handle_input();
