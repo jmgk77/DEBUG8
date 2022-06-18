@@ -89,6 +89,7 @@ bool debug8::load_struct()
   f = fopen(".config.bin", "rb");
   if (!f)
     return false;
+  memset(&wnd, 0, sizeof(wnd));
   fread(&wnd, 1, sizeof(wnd), f);
   fclose(f);
   return true;
@@ -114,126 +115,238 @@ uint8_t debug8::get_RAM(uint16_t ptr)
   return chip8::get_RAM(ptr);
 }
 
-void debug8::create_text(char *dump, uint16_t jnl, uint16_t w, SDL_Color c)
-{
-  SDL_Surface *text_surf = TTF_RenderText_Blended_Wrapped(font, dump, c, w);
-  SDL_Texture *text_texture =
-      SDL_CreateTextureFromSurface(wnd.r[jnl], text_surf);
-  SDL_Rect r;
-  r.x = 0;
-  r.y = 0;
-  r.w = text_surf->w;
-  r.h = text_surf->h;
-  SDL_RenderClear(wnd.r[jnl]);
-  SDL_RenderCopy(wnd.r[jnl], text_texture, &r, &r);
-  SDL_FreeSurface(text_surf);
-  SDL_DestroyTexture(text_texture);
-  SDL_RenderPresent(wnd.r[jnl]);
-}
-
 void debug8::dump_breakpoints()
 {
-  char dump[4096];
   char tmp[32];
-  dump[0] = 0x0;
-  snprintf(tmp, sizeof(tmp), "> 0x%04x <\n", brk_ptr);
-  strcat(dump, tmp);
+  int x = 0;
+  int y = 0;
+  SDL_RenderClear(wnd.r[BRK_LIST]);
+
+  snprintf(tmp, sizeof(tmp), "> 0x%04X <\n", brk_ptr);
+  text(BRK_LIST, tmp, {255, 255, 255, SDL_ALPHA_OPAQUE}, x, y);
+
   if (!breakpoints.empty())
   {
     for (auto i : breakpoints)
     {
-      snprintf(tmp, sizeof(tmp), "%c 0x%04x\n",
-               (i.type == BREAKPOINT_MEMORY) ? 'M' : 'C', i.ptr);
-      strcat(dump, tmp);
+      snprintf(tmp, sizeof(tmp), "  0x%04X\n", i.ptr);
+      x = 0;
+      // default to code breakpoint
+      SDL_Color c = {255, 0, 0, SDL_ALPHA_OPAQUE};
+      if (i.type == BREAKPOINT_MEMORY)
+      {
+        c = {0, 0, 255, SDL_ALPHA_OPAQUE};
+      }
+      text(BRK_LIST, tmp, c, x, y);
     }
   }
   //
-  create_text(dump, BRK_LIST, 100);
+  SDL_RenderPresent(wnd.r[BRK_LIST]);
 }
 
 void debug8::dump_stack()
 {
-  char dump[4096];
   char tmp[32];
-  dump[0] = 0x0;
+  int y = 0;
+  SDL_RenderClear(wnd.r[STACK]);
+
   for (int i = 0; i < 16; i++)
   {
-    snprintf(tmp, sizeof(tmp), "%1$c 0x%2$04x %1$c\n", (sp == i) ? '*' : ' ',
-             stack[i]);
-    strcat(dump, tmp);
+    snprintf(tmp, sizeof(tmp), "  0x%04X  \n", stack[i]);
+    SDL_Color c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    if (sp == i)
+    {
+      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+    }
+    int x = 0;
+    text(STACK, tmp, c, x, y);
   }
+
   //
-  create_text(dump, STACK, 100);
+  SDL_RenderPresent(wnd.r[STACK]);
 }
 
 void debug8::dump_registers()
 {
-  char dump[4096];
-  char tmp[512];
-  dump[0] = 0x0;
+  char tmp[64];
+  SDL_Color c;
+  SDL_RenderClear(wnd.r[REGISTERS]);
+
+  int y;
   // Vx (0..7)
+  int x = 0;
   for (int i = 0; i < 8; i++)
   {
-    snprintf(tmp, sizeof(tmp), "V%02d=0x%04x ", i, reg[i]);
-    strcat(dump, tmp);
+    snprintf(tmp, sizeof(tmp), "V%02d=0x%04X ", i, reg[i]);
+    if (reg[i] != shadow_reg[i])
+    {
+      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+    }
+    else
+    {
+      c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    };
+    y = 0;
+    text(REGISTERS, tmp, c, x, y);
   }
   // Vx (8..15)
-  strcat(dump, "\n");
+  x = 0;
   for (int i = 8; i < 16; i++)
   {
-    snprintf(tmp, sizeof(tmp), "V%02d=0x%04x ", i, reg[i]);
-    strcat(dump, tmp);
+    snprintf(tmp, sizeof(tmp), "V%02d=0x%04X ", i, reg[i]);
+    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    if (reg[i] != shadow_reg[i])
+    {
+      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+    }
+    else
+    {
+      c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    };
+    y = TTF_FontHeight(font);
+    text(REGISTERS, tmp, c, x, y);
   }
-  // others
+  // DT ST PC
+  x = 0;
   snprintf(
       tmp, sizeof(tmp),
-      "\nDT=%04X            ST=%04X             SP=%04X            PC=%04X "
-      "           INDEX=%04X\n",
-      delay_timer, sound_timer, sp, pc, index);
-  strcat(dump, tmp);
+      "DT=%04X            ST=%04X             PC=%04X", delay_timer, sound_timer, pc);
+  y = TTF_FontHeight(font) * 2;
+  c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+  text(REGISTERS, tmp, c, x, y);
+  // SP
+  snprintf(tmp, sizeof(tmp), "            SP=%04X            ", sp);
+  y = TTF_FontHeight(font) * 2;
+  if (sp != shadow_sp)
+  {
+    c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+  }
+  else
+  {
+    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+  };
+  text(REGISTERS, tmp, c, x, y);
+  // INDEX
+  snprintf(tmp, sizeof(tmp), "INDEX=%04X", index);
+  y = TTF_FontHeight(font) * 2;
+  if (index != shadow_index)
+  {
+    c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+  }
+  else
+  {
+    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+  };
+  text(REGISTERS, tmp, c, x, y);
+
   //
-  create_text(dump, REGISTERS, 875);
+  SDL_RenderPresent(wnd.r[REGISTERS]);
 }
 
 void debug8::dump_memory()
 {
-  char dump[4096];
   char tmp[16];
-  dump[0] = 0x0;
+  SDL_RenderClear(wnd.r[MEMORY]);
   //
   uint16_t p = mem_ptr;
+  int y = 0;
   for (int lin = 0; lin < 10; lin++)
   {
-    snprintf(tmp, sizeof(tmp), "0x%04x  ", p);
-    strcat(dump, tmp);
-    for (int col = 0; col < 16; col++)
+    int x = 0;
+    snprintf(tmp, sizeof(tmp), "0x%04X  ", p);
+    int yy = y;
+    SDL_Color c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    text(MEMORY, tmp, c, x, yy);
+
+    for (int col = 1; col <= 16; col++)
     {
-      snprintf(tmp, sizeof(tmp), "%02x %s", memory[p++], (col == 7) ? " " : "");
-      strcat(dump, tmp);
+      //
+      snprintf(tmp, sizeof(tmp), "%02X", memory[p]);
+      if (check_brk(p, BREAKPOINT_CODE))
+      {
+        // code breakpoint, red
+        c = {255, 0, 0, SDL_ALPHA_OPAQUE};
+      }
+      else if (check_brk(p, BREAKPOINT_MEMORY))
+      {
+        // memory breakpoint, blue
+        c = {0, 0, 255, SDL_ALPHA_OPAQUE};
+      }
+      else
+      {
+        // normal memory, grey
+        c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+      };
+      //
+      int yy = y;
+      text(MEMORY, tmp, c, x, yy);
+      x += 4;
+      x += (col % 4 == 0) ? 8 : 0;
+      x += (col % 8 == 0) ? 8 : 0;
+      p++;
     }
-    strcat(dump, "\n");
+
+    y += TTF_FontHeight(font);
     p &= 0xfff;
   }
   //
-  create_text(dump, MEMORY, 565);
+  SDL_RenderPresent(wnd.r[MEMORY]);
 }
 
 void debug8::dump_disasm()
 {
-  char dump[4096];
   char address[16];
   char op[16];
   char disasm[32];
   char tmp[1024];
-  dump[0] = 0x0;
+  int y = 0;
+  SDL_Color c;
+  SDL_RenderClear(wnd.r[DISASM]);
+
   for (int i = pc - (7 * 2); i <= pc + (7 * 2); i += 2)
   {
     disassemble(i, address, op, disasm);
-    snprintf(tmp, sizeof(tmp), "%s %s  %c  %s\n", address, op,
-             (pc == i) ? '*' : ' ', disasm);
-    strcat(dump, tmp);
+    snprintf(tmp, sizeof(tmp), "%s  %s     %s\n", address, op, disasm);
+    // normal code, grey
+    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
+    if (pc == i)
+    {
+      // current ip
+      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+    }
+    else if (check_brk(i, BREAKPOINT_CODE))
+    {
+      // code breakpoint, red
+      c = {255, 0, 0, SDL_ALPHA_OPAQUE};
+    }
+    else if (check_brk(i, BREAKPOINT_MEMORY))
+    {
+      // memory breakpoint, blue
+      c = {0, 0, 255, SDL_ALPHA_OPAQUE};
+    }
+    int x = 0;
+    text(DISASM, tmp, c, x, y);
   }
-  create_text(dump, DISASM, 550);
+  SDL_RenderPresent(wnd.r[DISASM]);
+}
+
+void debug8::text(int r, char *tmp, SDL_Color c, int &x, int &y)
+{
+  SDL_Surface *text_surf = TTF_RenderText_Blended(font, tmp, c);
+  SDL_Texture *text_texture =
+      SDL_CreateTextureFromSurface(wnd.r[r], text_surf);
+  SDL_Rect d, s;
+  s.x = 0;
+  s.y = 0;
+  d.x = x;
+  d.y = y;
+  x += text_surf->w;
+  y += text_surf->h;
+  s.w = d.w = text_surf->w;
+  s.h = d.h = text_surf->h;
+  SDL_RenderCopy(wnd.r[r], text_texture, &s, &d);
+  SDL_FreeSurface(text_surf);
+  SDL_DestroyTexture(text_texture);
 }
 
 void debug8::disassemble(uint16_t pc, char *address, char *op, char *disasm)
@@ -611,6 +724,17 @@ bool debug8::handle_input()
   return quit;
 }
 
+void debug8::init()
+{
+  for (int i = 0; i < 16; i++)
+  {
+    shadow_reg[i] = 0;
+  }
+  shadow_sp = 0;
+  shadow_index = 0;
+  chip8::init();
+}
+
 bool debug8::loop(bool d, bool s)
 {
   // if previous loop caused exception, rewind and debug
@@ -649,6 +773,12 @@ bool debug8::loop(bool d, bool s)
     }
     last_break = -1;
     single_step = false;
+    for (int i = 0; i < 16; i++)
+    {
+      shadow_reg[i] = reg[i];
+    }
+    shadow_sp = sp;
+    shadow_index = index;
     return sdl2_chip8::loop();
   }
   else

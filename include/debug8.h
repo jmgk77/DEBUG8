@@ -18,8 +18,12 @@ private:
 
   bool save_struct();
   bool load_struct();
-  void create_text(char *dump, uint16_t jnl, uint16_t w,
-                   SDL_Color c = {128, 128, 128, 255});
+
+  void text(int r, char *tmp, SDL_Color c, int &x, int &y);
+
+  uint8_t shadow_sp;
+  uint8_t shadow_reg[16];
+  uint16_t shadow_index;
 
   TTF_Font *font;
   uint16_t mem_ptr = 0;
@@ -61,7 +65,7 @@ private:
     const char *title;
     uint16_t w;
     uint16_t h;
-  } wnd_data[WND_SIZE] = {{"DEBUG8", 640, 320}, {"REGISTERS", 875, 63}, {"STACK", 100, 336}, {"MEMORY", 565, 210}, {"DISASSEMBLY", 320, 320}, {"BREAKPOINTS", 100, 336}};
+  } wnd_data[WND_SIZE] = {{"DEBUG8", 640, 320}, {"REGISTERS", 875, 63}, {"STACK", 100, 336}, {"MEMORY", 500, 210}, {"DISASSEMBLY", 325, 320}, {"BREAKPOINTS", 100, 336}};
 
   const char *exception_text[4] = {"NO_EXCEPTION", "EXCEPTION_UNKNOWN_OPCODE",
                                    "EXCEPTION_STACK_UNDERFLOW",
@@ -77,8 +81,9 @@ private:
 
   void set_RAM(uint16_t ptr, uint8_t val);
   uint8_t get_RAM(uint16_t ptr);
-
   uint16_t last_break = -1;
+
+  void init();
 
 public:
   void init_screen();
