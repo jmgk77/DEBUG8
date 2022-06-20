@@ -6,3 +6,6 @@ chip8_ncurses
 debug8
 TEST/
 *.o
+*.ncurses
+*.sdl1
+*.sdl2
