@@ -27,7 +27,7 @@
 #define EXCEPTION_STACK_OVERFLOW 3
 
 class chip8 {
- protected:
+protected:
   uint8_t memory[4096];
   bool display[64 * 32];
   uint8_t delay_timer;
@@ -44,14 +44,14 @@ class chip8 {
   virtual void set_RAM(uint16_t ptr, uint8_t val);
   virtual uint8_t get_RAM(uint16_t ptr);
 
- private:
+private:
   void clear_screen();
   bool tick_delay();
   bool tick_sound();
   uint16_t fetch();
   bool decode_execute(uint16_t opcode);
 
- public:
+public:
   chip8();
   bool load(char *rom);
   bool load(uint8_t *rom, uint16_t size);

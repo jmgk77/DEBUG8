@@ -65,22 +65,22 @@ bool sdl2_chip8::handle_input() {
   bool quit = false;
   while (SDL_PollEvent(&event)) {
     switch (event.type) {
-      case SDL_QUIT:
+    case SDL_QUIT:
+      quit = true;
+      break;
+    case SDL_KEYDOWN:
+      if (event.key.keysym.sym == SDLK_ESCAPE) {
         quit = true;
-        break;
-      case SDL_KEYDOWN:
-        if (event.key.keysym.sym == SDLK_ESCAPE) {
-          quit = true;
-        }
-        // chip8 keyboard handler
-        check_keypress(&event);
-        break;
-      case SDL_KEYUP:
-        // chip8 keyboard handler
-        check_keyrelease(&event);
-        break;
-      default:
-        break;
+      }
+      // chip8 keyboard handler
+      check_keypress(&event);
+      break;
+    case SDL_KEYUP:
+      // chip8 keyboard handler
+      check_keyrelease(&event);
+      break;
+    default:
+      break;
     }
   }
   return quit;

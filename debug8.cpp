@@ -42,7 +42,9 @@ void debug8::toogle_brk(uint16_t ptr, uint8_t type) {
 
 bool debug8::check_brk(uint16_t ptr, uint8_t type) {
   for (auto i : breakpoints) {
-    if ((i.ptr == ptr) && (i.type == type)) return true;
+    if ((i.ptr == ptr) && (i.type == type)) {
+      return true;
+    }
   }
   return false;
 }
@@ -69,7 +71,9 @@ bool debug8::save_struct() {
   //
   FILE *f;
   f = fopen(fp, "wb");
-  if (!f) return false;
+  if (!f) {
+    return false;
+  }
   fwrite(&wnd, 1, sizeof(wnd), f);
   fclose(f);
   return true;
@@ -83,7 +87,9 @@ bool debug8::load_struct() {
   //
   FILE *f;
   f = fopen(fp, "rb");
-  if (!f) return false;
+  if (!f) {
+    return false;
+  }
   memset(&wnd, 0, sizeof(wnd));
   fread(&wnd, 1, sizeof(wnd), f);
   fclose(f);
@@ -317,173 +323,173 @@ void debug8::disassemble(uint16_t pc, char *address, char *op, char *disasm) {
   char dis[64];
 
   switch (_op) {
-    case 0x00:
-      switch (_kk) {
-        case 0xe0:
-          // CLS
-          snprintf(dis, 64, "CLS");
-          break;
-        case 0xee:
-          // RET
-          snprintf(dis, 64, "RET");
-          break;
-        default:
-          snprintf(dis, 64, "UNKNOWN");
-          break;
-      }
+  case 0x00:
+    switch (_kk) {
+    case 0xe0:
+      // CLS
+      snprintf(dis, 64, "CLS");
       break;
-    case 0x01:
-      // JP addr
-      snprintf(dis, 64, "JP $%04X", _nnn);
+    case 0xee:
+      // RET
+      snprintf(dis, 64, "RET");
       break;
-    case 0x02:
-      // CALL addr
-      snprintf(dis, 64, "CALL $%04X", _nnn);
-      break;
-    case 0x03:
-      // SE Vx, byte
-      snprintf(dis, 64, "SE V%d, $%02X", _x, _kk);
-      break;
-    case 0x04:
-      // SNE Vx, byte
-      snprintf(dis, 64, "SNE V%d, $%02X", _x, _kk);
-      break;
-    case 0x05:
-      // SE Vx, Vy
-      snprintf(dis, 64, "SE V%d, V%d", _x, _y);
-      break;
-    case 0x06:
-      // LD Vx, byte
-      snprintf(dis, 64, "LD V%d, $%02X", _x, _kk);
-      break;
-    case 0x07:
-      // ADD Vx, byte
-      snprintf(dis, 64, "ADD V%d, $%02X", _x, _kk);
-      break;
-    case 0x08:
-      switch (_n) {
-        case 0x0:
-          // LD Vx, Vy
-          snprintf(dis, 64, "LD V%d, V%d", _x, _y);
-          break;
-        case 0x1:
-          // OR Vx, Vy
-          snprintf(dis, 64, "OR V%d, V%d", _x, _y);
-          break;
-        case 0x2:
-          // AND Vx, Vy
-          snprintf(dis, 64, "AND V%d, V%d", _x, _y);
-          break;
-        case 0x3:
-          // XOR Vx, Vy
-          snprintf(dis, 64, "XOR V%d, V%d", _x, _y);
-          break;
-        case 0x4:
-          // ADD Vx, Vy
-          snprintf(dis, 64, "ADD V%d, V%d", _x, _y);
-          break;
-        case 0x5:
-          // SUB Vx, Vy
-          snprintf(dis, 64, "SUB V%d, V%d", _x, _y);
-          break;
-        case 0x6:
-          // SHR Vx {, Vy}
-          snprintf(dis, 64, "SHR V%d", _x);
-          break;
-        case 0x7:
-          // SUBN Vx, Vy
-          snprintf(dis, 64, "SUBN V%d, V%d", _x, _y);
-          break;
-        case 0xe:
-          // SHL Vx {, Vy}
-          snprintf(dis, 64, "SHL V%d", _x);
-          break;
-        default:
-          snprintf(dis, 64, "UNKNOWN");
-          break;
-      }
-      break;
-    case 0x09:
-      // SNE Vx, Vy
-      snprintf(dis, 64, "SNE V%d, V%d", _x, _y);
-      break;
-    case 0x0a:
-      // LD I, addr
-      snprintf(dis, 64, "LD I, $%04X", _nnn);
-      break;
-    case 0x0b:
-      // LJP V0, addr
-      snprintf(dis, 64, "LJP V0, $%04X", _nnn);
-      break;
-    case 0x0c:
-      // RND Vx, byte
-      snprintf(dis, 64, "RND V%d, $%02X", _x, _kk);
-      break;
-    case 0x0d:
-      // DRW Vx, Vy, nibble
-      snprintf(dis, 64, "DRW V%d, V%d, $%02X", _x, _y, _n);
-      break;
-    case 0x0e:
-      switch (_kk) {
-        case 0x9E:
-          // SKP Vx
-          snprintf(dis, 64, "SKP V%d", _x);
-          break;
-        case 0xA1:
-          // SKNP Vx
-          snprintf(dis, 64, "SKNP V%d", _x);
-          break;
-        default:
-          snprintf(dis, 64, "UNKNOWN");
-          break;
-      }
-      break;
-    case 0x0f:
-      switch (_kk) {
-        case 0x07:
-          // LD Vx, DT
-          snprintf(dis, 64, "LD V%d, DT", _x);
-        case 0x0a:
-          // LD Vx, K
-          snprintf(dis, 64, "LD V%d, K", _x);
-          break;
-        case 0x15:
-          // LD DT, Vx
-          snprintf(dis, 64, "LD DT, V%d", _x);
-          break;
-        case 0x18:
-          // LD ST, Vx
-          snprintf(dis, 64, "LD ST, V%d", _x);
-          break;
-        case 0x1e:
-          // ADD I, Vx
-          snprintf(dis, 64, "ADD I, V%d", _x);
-          break;
-        case 0x29:
-          // LD F, Vx
-          snprintf(dis, 64, "LD F, V%d", _x);
-          break;
-        case 0x33:
-          // LD B, Vx
-          snprintf(dis, 64, "LD B, V%d", _x);
-          break;
-        case 0x55:
-          // LD [I], Vx
-          snprintf(dis, 64, "LD [I], V%d", _x);
-          break;
-        case 0x65:
-          //  LD Vx, [I]
-          snprintf(dis, 64, "LD V%d, [I]", _x);
-          break;
-        default:
-          snprintf(dis, 64, "UNKNOWN");
-          break;
-      }
-      break;
-
     default:
       snprintf(dis, 64, "UNKNOWN");
       break;
+    }
+    break;
+  case 0x01:
+    // JP addr
+    snprintf(dis, 64, "JP $%04X", _nnn);
+    break;
+  case 0x02:
+    // CALL addr
+    snprintf(dis, 64, "CALL $%04X", _nnn);
+    break;
+  case 0x03:
+    // SE Vx, byte
+    snprintf(dis, 64, "SE V%d, $%02X", _x, _kk);
+    break;
+  case 0x04:
+    // SNE Vx, byte
+    snprintf(dis, 64, "SNE V%d, $%02X", _x, _kk);
+    break;
+  case 0x05:
+    // SE Vx, Vy
+    snprintf(dis, 64, "SE V%d, V%d", _x, _y);
+    break;
+  case 0x06:
+    // LD Vx, byte
+    snprintf(dis, 64, "LD V%d, $%02X", _x, _kk);
+    break;
+  case 0x07:
+    // ADD Vx, byte
+    snprintf(dis, 64, "ADD V%d, $%02X", _x, _kk);
+    break;
+  case 0x08:
+    switch (_n) {
+    case 0x0:
+      // LD Vx, Vy
+      snprintf(dis, 64, "LD V%d, V%d", _x, _y);
+      break;
+    case 0x1:
+      // OR Vx, Vy
+      snprintf(dis, 64, "OR V%d, V%d", _x, _y);
+      break;
+    case 0x2:
+      // AND Vx, Vy
+      snprintf(dis, 64, "AND V%d, V%d", _x, _y);
+      break;
+    case 0x3:
+      // XOR Vx, Vy
+      snprintf(dis, 64, "XOR V%d, V%d", _x, _y);
+      break;
+    case 0x4:
+      // ADD Vx, Vy
+      snprintf(dis, 64, "ADD V%d, V%d", _x, _y);
+      break;
+    case 0x5:
+      // SUB Vx, Vy
+      snprintf(dis, 64, "SUB V%d, V%d", _x, _y);
+      break;
+    case 0x6:
+      // SHR Vx {, Vy}
+      snprintf(dis, 64, "SHR V%d", _x);
+      break;
+    case 0x7:
+      // SUBN Vx, Vy
+      snprintf(dis, 64, "SUBN V%d, V%d", _x, _y);
+      break;
+    case 0xe:
+      // SHL Vx {, Vy}
+      snprintf(dis, 64, "SHL V%d", _x);
+      break;
+    default:
+      snprintf(dis, 64, "UNKNOWN");
+      break;
+    }
+    break;
+  case 0x09:
+    // SNE Vx, Vy
+    snprintf(dis, 64, "SNE V%d, V%d", _x, _y);
+    break;
+  case 0x0a:
+    // LD I, addr
+    snprintf(dis, 64, "LD I, $%04X", _nnn);
+    break;
+  case 0x0b:
+    // LJP V0, addr
+    snprintf(dis, 64, "LJP V0, $%04X", _nnn);
+    break;
+  case 0x0c:
+    // RND Vx, byte
+    snprintf(dis, 64, "RND V%d, $%02X", _x, _kk);
+    break;
+  case 0x0d:
+    // DRW Vx, Vy, nibble
+    snprintf(dis, 64, "DRW V%d, V%d, $%02X", _x, _y, _n);
+    break;
+  case 0x0e:
+    switch (_kk) {
+    case 0x9E:
+      // SKP Vx
+      snprintf(dis, 64, "SKP V%d", _x);
+      break;
+    case 0xA1:
+      // SKNP Vx
+      snprintf(dis, 64, "SKNP V%d", _x);
+      break;
+    default:
+      snprintf(dis, 64, "UNKNOWN");
+      break;
+    }
+    break;
+  case 0x0f:
+    switch (_kk) {
+    case 0x07:
+      // LD Vx, DT
+      snprintf(dis, 64, "LD V%d, DT", _x);
+    case 0x0a:
+      // LD Vx, K
+      snprintf(dis, 64, "LD V%d, K", _x);
+      break;
+    case 0x15:
+      // LD DT, Vx
+      snprintf(dis, 64, "LD DT, V%d", _x);
+      break;
+    case 0x18:
+      // LD ST, Vx
+      snprintf(dis, 64, "LD ST, V%d", _x);
+      break;
+    case 0x1e:
+      // ADD I, Vx
+      snprintf(dis, 64, "ADD I, V%d", _x);
+      break;
+    case 0x29:
+      // LD F, Vx
+      snprintf(dis, 64, "LD F, V%d", _x);
+      break;
+    case 0x33:
+      // LD B, Vx
+      snprintf(dis, 64, "LD B, V%d", _x);
+      break;
+    case 0x55:
+      // LD [I], Vx
+      snprintf(dis, 64, "LD [I], V%d", _x);
+      break;
+    case 0x65:
+      //  LD Vx, [I]
+      snprintf(dis, 64, "LD V%d, [I]", _x);
+      break;
+    default:
+      snprintf(dis, 64, "UNKNOWN");
+      break;
+    }
+    break;
+
+  default:
+    snprintf(dis, 64, "UNKNOWN");
+    break;
   }
 
   snprintf(disasm, 64, "%s", dis);
@@ -573,73 +579,73 @@ bool debug8::handle_input() {
     switch (event.type) {
       bool shift;
       bool ctrl;
-      case SDL_QUIT:
+    case SDL_QUIT:
+      quit = true;
+      break;
+    case SDL_KEYDOWN:
+      if (event.key.keysym.sym == SDLK_ESCAPE) {
         quit = true;
-        break;
-      case SDL_KEYDOWN:
-        if (event.key.keysym.sym == SDLK_ESCAPE) {
-          quit = true;
-        }
-        // chip8 keyboard handler
-        check_keypress(&event);
-        // debugger keys (with repeat)
-        shift = event.key.keysym.mod & (KMOD_LSHIFT | KMOD_RSHIFT);
-        ctrl = event.key.keysym.mod & (KMOD_LCTRL | KMOD_RCTRL);
-        // memory dump keys
-        if (event.key.keysym.sym == SDLK_F2) {
-          mem_ptr -= shift ? 0x100 : 0x10;
-        } else if (event.key.keysym.sym == SDLK_F3) {
-          mem_ptr += shift ? 0x100 : 0x10;
-        } else if (event.key.keysym.sym == SDLK_F4) {
-          mem_ptr = 0;
-        }
-        mem_ptr &= 0xfff;
-        // breakpoints position keys
-        if (event.key.keysym.sym == SDLK_F6) {
-          brk_ptr -= shift ? 0x100 : ctrl ? 0x10 : 0x1;
-        } else if (event.key.keysym.sym == SDLK_F7) {
-          brk_ptr += shift ? 0x100 : ctrl ? 0x10 : 0x1;
-        }
-        brk_ptr &= 0xfff;
-        break;
-      case SDL_KEYUP:
-        // chip8 keyboard handler
-        check_keyrelease(&event);
-        // debugger keys (no repeat)
-        shift = event.key.keysym.mod & (KMOD_LSHIFT | KMOD_RSHIFT);
-        ctrl = event.key.keysym.mod & (KMOD_LCTRL | KMOD_RCTRL);
-        // help screen
-        if (event.key.keysym.sym == SDLK_F1) {
-          show_help();
-        }
-        // run
-        if (event.key.keysym.sym == SDLK_F5) {
-          debug = !debug;
-        }
-        // breakpoint toogle
-        if (event.key.keysym.sym == SDLK_F8) {
-          toogle_brk(brk_ptr, shift ? BREAKPOINT_MEMORY : BREAKPOINT_CODE);
-        }
-        // single step
-        if (event.key.keysym.sym == SDLK_F9) {
-          single_step = true;
-        }
-        // clear all breakpoints
-        if (event.key.keysym.sym == SDLK_F11) {
-          breakpoints.clear();
-          brk_ptr = 0;
-        }
-        // reload
-        if (event.key.keysym.sym == SDLK_F12) {
-          debug = true;
-          single_step = false;
-          last_break = -1;
-          init();
-          load(backup_rom, 4096 - 0x200);
-        }
-        break;
-      default:
-        break;
+      }
+      // chip8 keyboard handler
+      check_keypress(&event);
+      // debugger keys (with repeat)
+      shift = event.key.keysym.mod & (KMOD_LSHIFT | KMOD_RSHIFT);
+      ctrl = event.key.keysym.mod & (KMOD_LCTRL | KMOD_RCTRL);
+      // memory dump keys
+      if (event.key.keysym.sym == SDLK_F2) {
+        mem_ptr -= shift ? 0x100 : 0x10;
+      } else if (event.key.keysym.sym == SDLK_F3) {
+        mem_ptr += shift ? 0x100 : 0x10;
+      } else if (event.key.keysym.sym == SDLK_F4) {
+        mem_ptr = 0;
+      }
+      mem_ptr &= 0xfff;
+      // breakpoints position keys
+      if (event.key.keysym.sym == SDLK_F6) {
+        brk_ptr -= shift ? 0x100 : ctrl ? 0x10 : 0x1;
+      } else if (event.key.keysym.sym == SDLK_F7) {
+        brk_ptr += shift ? 0x100 : ctrl ? 0x10 : 0x1;
+      }
+      brk_ptr &= 0xfff;
+      break;
+    case SDL_KEYUP:
+      // chip8 keyboard handler
+      check_keyrelease(&event);
+      // debugger keys (no repeat)
+      shift = event.key.keysym.mod & (KMOD_LSHIFT | KMOD_RSHIFT);
+      ctrl = event.key.keysym.mod & (KMOD_LCTRL | KMOD_RCTRL);
+      // help screen
+      if (event.key.keysym.sym == SDLK_F1) {
+        show_help();
+      }
+      // run
+      if (event.key.keysym.sym == SDLK_F5) {
+        debug = !debug;
+      }
+      // breakpoint toogle
+      if (event.key.keysym.sym == SDLK_F8) {
+        toogle_brk(brk_ptr, shift ? BREAKPOINT_MEMORY : BREAKPOINT_CODE);
+      }
+      // single step
+      if (event.key.keysym.sym == SDLK_F9) {
+        single_step = true;
+      }
+      // clear all breakpoints
+      if (event.key.keysym.sym == SDLK_F11) {
+        breakpoints.clear();
+        brk_ptr = 0;
+      }
+      // reload
+      if (event.key.keysym.sym == SDLK_F12) {
+        debug = true;
+        single_step = false;
+        last_break = -1;
+        init();
+        load(backup_rom, 4096 - 0x200);
+      }
+      break;
+    default:
+      break;
     }
   }
   return quit;

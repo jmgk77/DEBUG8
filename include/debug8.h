@@ -6,7 +6,7 @@
 #include "sdl2_chip8.h"
 
 class debug8 : public sdl2_chip8 {
- private:
+private:
   void show_help();
   void dump_stack();
   void dump_registers();
@@ -70,7 +70,7 @@ class debug8 : public sdl2_chip8 {
 
   void init();
 
- public:
+public:
   void init_screen();
   void end_screen();
   bool handle_input();
