@@ -13,7 +13,7 @@ CHIP-8 debugger
 
 ## Usage
 
-Run `./debug8 <ROM>`. Press <F1> to view key bindings. Code breakpoints are RED, memory breakpoints are BLUE.
+Run `./debug8 <ROM>`. Press \<F1\> to view key bindings. Code breakpoints are RED, memory breakpoints are BLUE.
 
 ## Images
 
