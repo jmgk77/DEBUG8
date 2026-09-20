@@ -1,12 +1,24 @@
 #include "debug8.h"
 
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 #include <cstring>
+
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_sdlrenderer2.h"
+
+namespace {
+const ImVec4 COL_NORMAL(0.55f, 0.55f, 0.55f, 1.0f);
+const ImVec4 COL_WHITE(1.00f, 1.00f, 1.00f, 1.0f);
+const ImVec4 COL_CODE(1.00f, 0.30f, 0.30f, 1.0f);
+const ImVec4 COL_MEMORY(0.40f, 0.50f, 1.00f, 1.0f);
+const ImVec4 COL_RUN(0.40f, 1.00f, 0.40f, 1.0f);
+const ImVec4 COL_PAUSED(1.00f, 0.75f, 0.30f, 1.0f);
+} // namespace
 
 void debug8::show_help() {
   SDL_ShowSimpleMessageBox(
@@ -69,12 +81,13 @@ bool debug8::save_struct() {
   readlink("/proc/self/exe", fp, 512);
   strcpy(strrchr(fp, '/') + 1, ".config.bin");
   //
+  wnd_pos.magic = CONFIG_MAGIC;
   FILE *f;
   f = fopen(fp, "wb");
   if (!f) {
     return false;
   }
-  fwrite(&wnd, 1, sizeof(wnd), f);
+  fwrite(&wnd_pos, 1, sizeof(wnd_pos), f);
   fclose(f);
   return true;
 }
@@ -90,10 +103,10 @@ bool debug8::load_struct() {
   if (!f) {
     return false;
   }
-  memset(&wnd, 0, sizeof(wnd));
-  fread(&wnd, 1, sizeof(wnd), f);
+  memset(&wnd_pos, 0, sizeof(wnd_pos));
+  size_t n = fread(&wnd_pos, 1, sizeof(wnd_pos), f);
   fclose(f);
-  return true;
+  return (n == sizeof(wnd_pos)) && (wnd_pos.magic == CONFIG_MAGIC);
 }
 
 void debug8::set_RAM(uint16_t ptr, uint8_t val) {
@@ -112,202 +125,215 @@ uint8_t debug8::get_RAM(uint16_t ptr) {
   return chip8::get_RAM(ptr);
 }
 
-void debug8::dump_breakpoints() {
-  char tmp[32];
-  int x = 0;
-  int y = 0;
-  SDL_RenderClear(wnd.r[BRK_LIST]);
-
-  snprintf(tmp, sizeof(tmp), "> 0x%04X <\n", brk_ptr);
-  text(BRK_LIST, tmp, {255, 255, 255, SDL_ALPHA_OPAQUE}, x, y);
-
-  if (!breakpoints.empty()) {
-    for (auto i : breakpoints) {
-      snprintf(tmp, sizeof(tmp), "  0x%04X\n", i.ptr);
-      x = 0;
-      // default to code breakpoint
-      SDL_Color c = {255, 0, 0, SDL_ALPHA_OPAQUE};
-      if (i.type == BREAKPOINT_MEMORY) {
-        c = {0, 0, 255, SDL_ALPHA_OPAQUE};
-      }
-      text(BRK_LIST, tmp, c, x, y);
-    }
+void debug8::draw_toolbar() {
+  if (ImGui::Button(debug ? "Run (F5)" : "Pause (F5)")) {
+    debug = !debug;
   }
-  //
-  SDL_RenderPresent(wnd.r[BRK_LIST]);
+  ImGui::SameLine();
+  if (ImGui::Button("Step (F9)")) {
+    debug = true;
+    single_step = true;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Reload (F12)")) {
+    debug = true;
+    single_step = false;
+    last_break = -1;
+    init();
+    load(backup_rom, 4096 - 0x200);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Clear BRK (F11)")) {
+    breakpoints.clear();
+    brk_ptr = 0;
+  }
+  ImGui::SameLine();
+  ImGui::TextColored(debug ? COL_PAUSED : COL_RUN,
+                     debug ? "PAUSED" : "RUNNING");
+
+  // second row: addresses + explicit breakpoint toggles
+  ImGui::SetNextItemWidth(120);
+  uint16_t step = 0x10, fast = 0x100;
+  if (ImGui::InputScalar("MEM", ImGuiDataType_U16, &mem_ptr, &step, &fast,
+                         "%04X", ImGuiInputTextFlags_CharsHexadecimal)) {
+    mem_ptr &= 0xfff;
+  }
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(120);
+  uint16_t bstep = 0x1, bfast = 0x10;
+  if (ImGui::InputScalar("BRK", ImGuiDataType_U16, &brk_ptr, &bstep, &bfast,
+                         "%04X", ImGuiInputTextFlags_CharsHexadecimal)) {
+    brk_ptr &= 0xfff;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Toggle Code BRK (F8)")) {
+    toogle_brk(brk_ptr, BREAKPOINT_CODE);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Toggle Mem BRK (Shift+F8)")) {
+    toogle_brk(brk_ptr, BREAKPOINT_MEMORY);
+  }
+  ImGui::TextDisabled(
+      "Click a disasm line / memory byte to select its address; double-click "
+      "toggles the breakpoint");
 }
 
-void debug8::dump_stack() {
-  char tmp[32];
-  int y = 0;
-  SDL_RenderClear(wnd.r[STACK]);
-
+void debug8::draw_registers() {
+  if (!ImGui::CollapsingHeader("REGISTERS", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+  // 4 registers per row so the panel never clips on narrow layouts
   for (int i = 0; i < 16; i++) {
-    snprintf(tmp, sizeof(tmp), "  0x%04X  \n", stack[i]);
-    SDL_Color c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    if (sp == i) {
-      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
+    ImGui::TextColored(reg[i] != shadow_reg[i] ? COL_WHITE : COL_NORMAL,
+                       "V%02d=%02X", i, reg[i]);
+    if ((i % 4) != 3) {
+      ImGui::SameLine(0, 20);
     }
-    int x = 0;
-    text(STACK, tmp, c, x, y);
   }
-
-  //
-  SDL_RenderPresent(wnd.r[STACK]);
+  ImGui::TextColored(COL_NORMAL, "DT=%02X  ST=%02X  PC=%04X", delay_timer,
+                     sound_timer, pc);
+  ImGui::TextColored(sp != shadow_sp ? COL_WHITE : COL_NORMAL, "SP=%02X", sp);
+  ImGui::SameLine(0, 14);
+  ImGui::TextColored(index != shadow_index ? COL_WHITE : COL_NORMAL,
+                     "INDEX=%04X", index);
 }
 
-void debug8::dump_registers() {
-  char tmp[64];
-  SDL_Color c;
-  SDL_RenderClear(wnd.r[REGISTERS]);
-
-  int y;
-  // Vx (0..7)
-  int x = 0;
-  for (int i = 0; i < 8; i++) {
-    snprintf(tmp, sizeof(tmp), "V%02d=0x%04X ", i, reg[i]);
-    if (reg[i] != shadow_reg[i]) {
-      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
-    } else {
-      c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    };
-    y = 0;
-    text(REGISTERS, tmp, c, x, y);
+void debug8::draw_stack() {
+  if (!ImGui::CollapsingHeader("STACK", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
   }
-  // Vx (8..15)
-  x = 0;
-  for (int i = 8; i < 16; i++) {
-    snprintf(tmp, sizeof(tmp), "V%02d=0x%04X ", i, reg[i]);
-    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    if (reg[i] != shadow_reg[i]) {
-      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
-    } else {
-      c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    };
-    y = TTF_FontHeight(font);
-    text(REGISTERS, tmp, c, x, y);
+  for (int i = 0; i < 16; i++) {
+    ImGui::TextColored(sp == i ? COL_WHITE : COL_NORMAL, "[%02d] 0x%04X", i,
+                       stack[i]);
   }
-  // DT ST PC
-  x = 0;
-  snprintf(tmp, sizeof(tmp), "DT=%04X            ST=%04X             PC=%04X",
-           delay_timer, sound_timer, pc);
-  y = TTF_FontHeight(font) * 2;
-  c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-  text(REGISTERS, tmp, c, x, y);
-  // SP
-  snprintf(tmp, sizeof(tmp), "            SP=%04X            ", sp);
-  y = TTF_FontHeight(font) * 2;
-  if (sp != shadow_sp) {
-    c = {255, 255, 255, SDL_ALPHA_OPAQUE};
-  } else {
-    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-  };
-  text(REGISTERS, tmp, c, x, y);
-  // INDEX
-  snprintf(tmp, sizeof(tmp), "INDEX=%04X", index);
-  y = TTF_FontHeight(font) * 2;
-  if (index != shadow_index) {
-    c = {255, 255, 255, SDL_ALPHA_OPAQUE};
-  } else {
-    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-  };
-  text(REGISTERS, tmp, c, x, y);
-
-  //
-  SDL_RenderPresent(wnd.r[REGISTERS]);
 }
 
-void debug8::dump_memory() {
-  char tmp[16];
-  SDL_RenderClear(wnd.r[MEMORY]);
-  //
+void debug8::draw_breakpoints() {
+  if (!ImGui::CollapsingHeader("BREAKPOINTS", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+  ImGui::TextColored(COL_WHITE, "> 0x%04X <", brk_ptr);
+  ImGui::TextDisabled("F8=code  Shift+F8=mem");
+  ImGui::TextDisabled("dbl-click disasm/mem toggles");
+  if (breakpoints.empty()) {
+    ImGui::TextDisabled("(none)");
+    return;
+  }
+  for (size_t i = 0; i < breakpoints.size();) {
+    ImGui::PushID((int)i);
+    if (ImGui::SmallButton("x")) {
+      remove_brk(breakpoints[i].ptr, breakpoints[i].type);
+      ImGui::PopID();
+      continue;
+    }
+    ImGui::SameLine();
+    const _brk &bp = breakpoints[i];
+    char label[64];
+    snprintf(label, sizeof(label), "0x%04X  %s", bp.ptr,
+             bp.type == BREAKPOINT_MEMORY ? "MEM" : "CODE");
+    if (ImGui::Selectable(label)) {
+      brk_ptr = bp.ptr;
+    }
+    ImGui::PopID();
+    i++;
+  }
+}
+
+void debug8::draw_memory() {
+  if (!ImGui::CollapsingHeader("MEMORY", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+  // zero padding keeps each byte cell exactly as wide as its text
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
   uint16_t p = mem_ptr;
-  int y = 0;
   for (int lin = 0; lin < 10; lin++) {
-    int x = 0;
-    snprintf(tmp, sizeof(tmp), "0x%04X  ", p);
-    int yy = y;
-    SDL_Color c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    text(MEMORY, tmp, c, x, yy);
-
+    ImGui::TextColored(COL_NORMAL, "%04X ", p);
     for (int col = 1; col <= 16; col++) {
-      //
-      snprintf(tmp, sizeof(tmp), "%02X", memory[p]);
+      ImVec4 c = COL_NORMAL;
       if (check_brk(p, BREAKPOINT_CODE)) {
-        // code breakpoint, red
-        c = {255, 0, 0, SDL_ALPHA_OPAQUE};
+        c = COL_CODE;
       } else if (check_brk(p, BREAKPOINT_MEMORY)) {
-        // memory breakpoint, blue
-        c = {0, 0, 255, SDL_ALPHA_OPAQUE};
-      } else {
-        // normal memory, grey
-        c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-      };
-      //
-      int yy = y;
-      text(MEMORY, tmp, c, x, yy);
-      x += 4;
-      x += (col % 4 == 0) ? 8 : 0;
-      x += (col % 8 == 0) ? 8 : 0;
-      p++;
+        c = COL_MEMORY;
+      }
+      const char *pad = (col % 8 == 0) ? "   " : (col % 4 == 0) ? "  " : " ";
+      char b[8];
+      snprintf(b, sizeof(b), "%02X%s", memory[p], pad);
+      float cellw = ImGui::CalcTextSize("00").x + ImGui::CalcTextSize(pad).x;
+      ImGui::SameLine(0, 0);
+      ImGui::PushID(p);
+      ImGui::PushStyleColor(ImGuiCol_Text, c);
+      bool clicked = ImGui::Selectable(b, p == brk_ptr, 0, ImVec2(cellw, 0));
+      ImGui::PopStyleColor();
+      if (clicked) {
+        brk_ptr = p;
+      }
+      if (ImGui::IsItemHovered() &&
+          ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        toogle_brk(p, BREAKPOINT_MEMORY);
+      }
+      if (ImGui::BeginPopupContextItem()) {
+        if (ImGui::MenuItem("Toggle memory breakpoint")) {
+          toogle_brk(p, BREAKPOINT_MEMORY);
+        }
+        if (ImGui::MenuItem("Toggle code breakpoint")) {
+          toogle_brk(p, BREAKPOINT_CODE);
+        }
+        ImGui::EndPopup();
+      }
+      ImGui::PopID();
+      p = (p + 1) & 0xfff;
     }
-
-    y += TTF_FontHeight(font);
-    p &= 0xfff;
   }
-  //
-  SDL_RenderPresent(wnd.r[MEMORY]);
+  ImGui::PopStyleVar();
 }
 
-void debug8::dump_disasm() {
-  char address[16];
-  char op[16];
-  char disasm[32];
-  char tmp[1024];
-  int y = 0;
-  SDL_Color c;
-  SDL_RenderClear(wnd.r[DISASM]);
-
+void debug8::draw_disasm() {
+  if (!ImGui::CollapsingHeader("DISASSEMBLY", ImGuiTreeNodeFlags_DefaultOpen)) {
+    return;
+  }
+  char address[64];
+  char op[64];
+  char disasm[64];
   for (int i = pc - (7 * 2); i <= pc + (7 * 2); i += 2) {
-    disassemble(i, address, op, disasm);
-    snprintf(tmp, sizeof(tmp), "%s  %s     %s\n", address, op, disasm);
-    // normal code, grey
-    c = {128, 128, 128, SDL_ALPHA_OPAQUE};
-    if (pc == i) {
-      // current ip
-      c = {255, 255, 255, SDL_ALPHA_OPAQUE};
-    } else if (check_brk(i, BREAKPOINT_CODE)) {
-      // code breakpoint, red
-      c = {255, 0, 0, SDL_ALPHA_OPAQUE};
-    } else if (check_brk(i, BREAKPOINT_MEMORY)) {
-      // memory breakpoint, blue
-      c = {0, 0, 255, SDL_ALPHA_OPAQUE};
+    uint16_t a = (uint16_t)i;
+    disassemble(a, address, op, disasm);
+    ImVec4 c = COL_NORMAL;
+    if (a == pc) {
+      c = COL_WHITE;
+    } else if (check_brk(a, BREAKPOINT_CODE)) {
+      c = COL_CODE;
+    } else if (check_brk(a, BREAKPOINT_MEMORY)) {
+      c = COL_MEMORY;
     }
-    int x = 0;
-    text(DISASM, tmp, c, x, y);
+    char line[256];
+    snprintf(line, sizeof(line), "%s  %s     %s", address, op, disasm);
+    ImGui::PushStyleColor(ImGuiCol_Text, c);
+    bool clicked = ImGui::Selectable(line, a == brk_ptr);
+    ImGui::PopStyleColor();
+    if (clicked) {
+      brk_ptr = a;
+    }
+    if (ImGui::IsItemHovered() &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+      toogle_brk(a, BREAKPOINT_CODE);
+    }
+    if (ImGui::BeginPopupContextItem()) {
+      if (ImGui::MenuItem("Select this address")) {
+        brk_ptr = a;
+      }
+      if (ImGui::MenuItem("Toggle code breakpoint")) {
+        toogle_brk(a, BREAKPOINT_CODE);
+      }
+      if (ImGui::MenuItem("Toggle memory breakpoint")) {
+        toogle_brk(a, BREAKPOINT_MEMORY);
+      }
+      ImGui::EndPopup();
+    }
   }
-  SDL_RenderPresent(wnd.r[DISASM]);
-}
-
-void debug8::text(int r, char *tmp, SDL_Color c, int &x, int &y) {
-  SDL_Surface *text_surf = TTF_RenderText_Blended(font, tmp, c);
-  SDL_Texture *text_texture = SDL_CreateTextureFromSurface(wnd.r[r], text_surf);
-  SDL_Rect d, s;
-  s.x = 0;
-  s.y = 0;
-  d.x = x;
-  d.y = y;
-  x += text_surf->w;
-  y += text_surf->h;
-  s.w = d.w = text_surf->w;
-  s.h = d.h = text_surf->h;
-  SDL_RenderCopy(wnd.r[r], text_texture, &s, &d);
-  SDL_FreeSurface(text_surf);
-  SDL_DestroyTexture(text_texture);
 }
 
 void debug8::disassemble(uint16_t pc, char *address, char *op, char *disasm) {
-  uint16_t opcode = (memory[pc & 0xfff] << 8) + memory[(pc & 0xfff) + 1];
+  uint16_t opcode = (memory[pc & 0xfff] << 8) + memory[(pc + 1) & 0xfff];
 
   // decode
   uint16_t _op = (opcode & 0xf000) >> 12;
@@ -449,6 +475,7 @@ void debug8::disassemble(uint16_t pc, char *address, char *op, char *disasm) {
     case 0x07:
       // LD Vx, DT
       snprintf(dis, 64, "LD V%d, DT", _x);
+      break;
     case 0x0a:
       // LD Vx, K
       snprintf(dis, 64, "LD V%d, K", _x);
@@ -496,49 +523,40 @@ void debug8::disassemble(uint16_t pc, char *address, char *op, char *disasm) {
 }
 
 void debug8::init_screen() {
-  // init SDL
-  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-    printf("ERROR: %s\n", SDL_GetError());
-    exit(-1);
-  }
-
   // load windows positions from disk
   bool load_ok = load_struct();
 
-  // create all windows and renderers
-  for (int i = 0; i < WND_SIZE; i++) {
-    if (SDL_CreateWindowAndRenderer(wnd_data[i].w, wnd_data[i].h, 0, &wnd.w[i],
-                                    &wnd.r[i])) {
-      printf("ERROR: %s\n", SDL_GetError());
-      SDL_Quit();
-      exit(-1);
-    }
-    SDL_SetWindowTitle(wnd.w[i], wnd_data[i].title);
-    if (load_ok) {
-      SDL_SetWindowPosition(wnd.w[i], wnd.x[i], wnd.y[i]);
-    }
+  // main (emulator) window + renderer
+  sdl2_chip8::init_screen();
+
+  // single debugger window + renderer (all panels live inside it)
+  if (SDL_CreateWindowAndRenderer(1100, 720, 0, &dbg_window, &dbg_renderer)) {
+    printf("ERROR: %s\n", SDL_GetError());
+    SDL_Quit();
+    exit(-1);
   }
-  // copy for parent object
-  window = wnd.w[MAIN];
-  renderer = wnd.r[MAIN];
+  SDL_SetWindowTitle(dbg_window, "DEBUGGER");
+
+  if (load_ok) {
+    SDL_SetWindowPosition(window, wnd_pos.x[MAIN], wnd_pos.y[MAIN]);
+    SDL_SetWindowPosition(dbg_window, wnd_pos.x[DEBUGGER], wnd_pos.y[DEBUGGER]);
+  }
   SDL_RaiseWindow(window);
 
-  // init font
-  if (TTF_Init() < 0) {
-    printf("ERROR: %s\n", TTF_GetError());
-    exit(-1);
-  }
-  // find current path
-  char fp[512];
-  readlink("/proc/self/exe", fp, 512);
-  strcpy(strrchr(fp, '/') + 1, "font.ttf");
-  // open font
-  font = TTF_OpenFont(fp, 20);
-  // font = TTF_OpenFont("font.ttf", 20);
-  if (!font) {
-    printf("ERROR: %s\n", TTF_GetError());
-    exit(-1);
-  }
+  // init dear imgui
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.IniFilename = nullptr;
+  ImGui::StyleColorsDark();
+
+  // the built-in default font is monospace (ProggyForever) and scales
+  // cleanly, so no external font file is required
+  ImGui::GetStyle().FontSizeBase = 18.0f;
+  io.Fonts->AddFontDefault();
+
+  ImGui_ImplSDL2_InitForSDLRenderer(dbg_window, dbg_renderer);
+  ImGui_ImplSDLRenderer2_Init(dbg_renderer);
 
   // backup rom (for reload)
   backup_rom = (uint8_t *)malloc(4096 - 0x200);
@@ -547,26 +565,21 @@ void debug8::init_screen() {
 
 void debug8::end_screen() {
   // get windows positions
-  for (int i = 0; i < WND_SIZE; i++) {
-    // how much OS moved our windows?
-    // int xx = wnd.x[i];
-    // int yy = wnd.y[i];
-    SDL_GetWindowPosition(wnd.w[i], &wnd.x[i], &wnd.y[i]);
-    // printf("[%d]\tread: %d,%d\n\tread: %d,%d\n\tdiff: %d,%d\n", i, xx, yy,
-    // wnd.x[i], wnd.y[i], xx - wnd.x[i], yy - wnd.y[i]);
-    wnd.x[i] += 0;
-    wnd.y[i] += -37;
-  }
+  SDL_GetWindowPosition(window, &wnd_pos.x[MAIN], &wnd_pos.y[MAIN]);
+  SDL_GetWindowPosition(dbg_window, &wnd_pos.x[DEBUGGER], &wnd_pos.y[DEBUGGER]);
   // save to disk
   save_struct();
 
-  // skip main
-  for (int i = 1; i < WND_SIZE; i++) {
-    SDL_DestroyRenderer(wnd.r[i]);
-    SDL_DestroyWindow(wnd.w[i]);
-  }
+  // shutdown dear imgui
+  ImGui_ImplSDLRenderer2_Shutdown();
+  ImGui_ImplSDL2_Shutdown();
+  ImGui::DestroyContext();
 
-  // destroy main windows and quit sdl
+  // destroy debugger window
+  SDL_DestroyRenderer(dbg_renderer);
+  SDL_DestroyWindow(dbg_window);
+
+  // destroy main window and quit sdl
   sdl2_chip8::end_screen();
 
   // free backup rom
@@ -575,7 +588,9 @@ void debug8::end_screen() {
 
 bool debug8::handle_input() {
   bool quit = false;
+  ImGuiIO &io = ImGui::GetIO();
   while (SDL_PollEvent(&event)) {
+    ImGui_ImplSDL2_ProcessEvent(&event);
     switch (event.type) {
       bool shift;
       bool ctrl;
@@ -585,6 +600,10 @@ bool debug8::handle_input() {
     case SDL_KEYDOWN:
       if (event.key.keysym.sym == SDLK_ESCAPE) {
         quit = true;
+      }
+      // don't send keys to the emulator while typing in the debugger ui
+      if (io.WantCaptureKeyboard || io.WantTextInput) {
+        break;
       }
       // chip8 keyboard handler
       check_keypress(&event);
@@ -609,6 +628,10 @@ bool debug8::handle_input() {
       brk_ptr &= 0xfff;
       break;
     case SDL_KEYUP:
+      // don't send keys to the emulator while typing in the debugger ui
+      if (io.WantCaptureKeyboard || io.WantTextInput) {
+        break;
+      }
       // chip8 keyboard handler
       check_keyrelease(&event);
       // debugger keys (no repeat)
@@ -628,6 +651,7 @@ bool debug8::handle_input() {
       }
       // single step
       if (event.key.keysym.sym == SDLK_F9) {
+        debug = true;
         single_step = true;
       }
       // clear all breakpoints
@@ -678,12 +702,6 @@ bool debug8::loop(bool d, bool s) {
       last_break = pc;
     }
   }
-  // show debugger
-  dump_stack();
-  dump_registers();
-  dump_memory();
-  dump_breakpoints();
-  dump_disasm();
   // debugger
   if (d) {
     // single step
@@ -702,4 +720,49 @@ bool debug8::loop(bool d, bool s) {
     // run
     return sdl2_chip8::loop();
   }
+}
+
+void debug8::show_debugger() {
+  ImGui_ImplSDLRenderer2_NewFrame();
+  ImGui_ImplSDL2_NewFrame();
+  ImGui::NewFrame();
+
+  draw_debugger();
+
+  ImGui::Render();
+  SDL_SetRenderDrawColor(dbg_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+  SDL_RenderClear(dbg_renderer);
+  ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), dbg_renderer);
+  SDL_RenderPresent(dbg_renderer);
+}
+
+void debug8::draw_debugger() {
+  ImGuiIO &io = ImGui::GetIO();
+  const ImGuiWindowFlags flags =
+      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+      ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar;
+
+  ImGui::SetNextWindowPos(ImVec2(0, 0));
+  ImGui::SetNextWindowSize(io.DisplaySize);
+  ImGui::Begin("DEBUG8", nullptr, flags);
+
+  draw_toolbar();
+  ImGui::Separator();
+
+  float left = ImGui::GetContentRegionAvail().x * 0.38f;
+  ImGui::BeginChild("regs_stack_brk", ImVec2(left, 0), true);
+  draw_registers();
+  draw_stack();
+  draw_breakpoints();
+  ImGui::EndChild();
+
+  ImGui::SameLine();
+
+  ImGui::BeginChild("disasm_mem", ImVec2(0, 0), true);
+  draw_disasm();
+  draw_memory();
+  ImGui::EndChild();
+
+  ImGui::End();
 }

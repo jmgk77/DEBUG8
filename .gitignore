@@ -5,7 +5,9 @@ chip8_sdl1
 chip8_ncurses
 debug8
 TEST/
+imgui/
 *.o
+*.d
 *.ncurses
 *.sdl1
 *.sdl2

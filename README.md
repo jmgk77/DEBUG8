@@ -4,16 +4,14 @@ CHIP-8 debugger
 
 ## Features
 
-* Code windows
-* Data windows
-* Stack windows
-* Register windows
-* Code breakpoints
-* Memory breakpoints
+* Two windows: the emulator display and a single Dear ImGui debugger window
+* Registers, stack, memory, disassembly and breakpoints as panels in the debugger window
+* Code breakpoints (RED)
+* Memory breakpoints (BLUE)
 
 ## Usage
 
-Run `./debug8 <ROM>`. Press \<F1\> to view key bindings. Code breakpoints are RED, memory breakpoints are BLUE.
+Run `./debug8 <ROM>`. Press \<F1\> to view key bindings. The debugger window also has Run/Step/Reload/Clear buttons and editable memory/breakpoint addresses. Code breakpoints are RED, memory breakpoints are BLUE.
 
 ## Images
 

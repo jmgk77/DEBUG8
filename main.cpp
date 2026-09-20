@@ -58,7 +58,10 @@ int main(int argc, char *argv[]) {
       framerate_old = framerate;
       quit = c8.handle_input();
 #ifdef DEBUG
-      if (c8.loop(c8.debug, c8.single_step))
+      bool redraw = c8.loop(c8.debug, c8.single_step);
+      // the debugger window must redraw every frame, running or paused
+      c8.show_debugger();
+      if (redraw)
 #else
       if (c8.loop())
 #endif

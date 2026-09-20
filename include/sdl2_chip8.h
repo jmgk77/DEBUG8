@@ -16,11 +16,12 @@ protected:
   void check_keyrelease(SDL_Event *event);
 
 public:
-  bool loop();
-  void show_display();
-  void init_screen();
-  void end_screen();
-  bool handle_input();
-  uint32_t get_ticks();
-  void delay(uint16_t x);
+  virtual ~sdl2_chip8() = default;
+  virtual bool loop();
+  virtual void show_display();
+  virtual void init_screen();
+  virtual void end_screen();
+  virtual bool handle_input();
+  virtual uint32_t get_ticks();
+  virtual void delay(uint16_t x);
 };
