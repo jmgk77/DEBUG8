@@ -56,7 +56,8 @@ bool ncurses_chip8::handle_input() {
 uint32_t ncurses_chip8::get_ticks() {
   struct timespec ts;
   uint32_t tick = 0;
-  clock_gettime(CLOCK_REALTIME, &ts);
+  // monotonic so a system clock adjustment can't distort the frame timing
+  clock_gettime(CLOCK_MONOTONIC, &ts);
   tick = ts.tv_nsec / 1000000;
   tick += ts.tv_sec * 1000;
   return tick;

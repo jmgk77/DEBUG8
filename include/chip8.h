@@ -43,19 +43,31 @@ protected:
   // debugger would like to override these
   virtual void set_RAM(uint16_t ptr, uint8_t val);
   virtual uint8_t get_RAM(uint16_t ptr);
+  // execute a single instruction (the debugger uses this to single-step)
+  bool step();
 
 private:
   void clear_screen();
   bool tick_delay();
   bool tick_sound();
+  void tick_timers();
   uint16_t fetch();
   bool decode_execute(uint16_t opcode);
 
+  // frame timing: cpu cycles and the 60hz timers are derived from the
+  // wall clock so they are independent of the render/loop frame rate
+  uint32_t last_time = 0;
+  uint32_t timer_accum = 0;
+  bool timing_init = false;
+
 public:
+  virtual ~chip8() = default;
   chip8();
   bool load(char *rom);
   bool load(uint8_t *rom, uint16_t size);
   void key_press(int k);
   void key_release(int k);
   bool loop();
+  // provided by the platform layer
+  virtual uint32_t get_ticks() = 0;
 };

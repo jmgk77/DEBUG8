@@ -715,9 +715,10 @@ bool debug8::loop(bool d, bool s) {
     }
     shadow_sp = sp;
     shadow_index = index;
-    return sdl2_chip8::loop();
+    // execute exactly one instruction (no timers, no cycle budget)
+    return chip8::step();
   } else {
-    // run
+    // run with the normal cpu/timer budget
     return sdl2_chip8::loop();
   }
 }

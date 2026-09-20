@@ -6,6 +6,15 @@
 
 #include <cstring>
 
+namespace {
+// chip-8 hardware runs the cpu at roughly 500-1000 hz and the delay/sound
+// timers at 60 hz, regardless of the render frame rate
+constexpr uint32_t CPU_HZ = 700;
+constexpr uint32_t TIMER_PERIOD_MS = 1000 / 60;
+// cap catch-up after a stall or a paused debugger so we never burst
+constexpr uint32_t MAX_ELAPSED_MS = 100;
+} // namespace
+
 chip8::chip8() { init(); }
 
 void chip8::init() {
@@ -14,8 +23,12 @@ void chip8::init() {
   clear_screen();
 
   // set timers
-  delay_timer = 60;
-  sound_timer = 60;
+  delay_timer = 0;
+  sound_timer = 0;
+
+  // reseed frame timing on the next loop() call
+  timing_init = false;
+  timer_accum = 0;
 
   memset(stack, 0, sizeof(stack));
 
@@ -65,13 +78,13 @@ bool chip8::tick_delay() {
 };
 
 void chip8::set_RAM(uint16_t ptr, uint8_t val) {
-  //
-  memory[ptr] = val;
+  // mask so a ROM-controlled I can never write outside RAM
+  memory[ptr & 0xfff] = val;
 }
 
 uint8_t chip8::get_RAM(uint16_t ptr) {
-  //
-  return memory[ptr];
+  // mask so a ROM-controlled I can never read outside RAM
+  return memory[ptr & 0xfff];
 }
 
 bool chip8::tick_sound() {
@@ -81,12 +94,43 @@ bool chip8::tick_sound() {
   return sound_timer;
 };
 
-bool chip8::loop() {
-  bool redraw = decode_execute(fetch());
-  // clock
+void chip8::tick_timers() {
   tick_delay();
   if (tick_sound()) {
     //!!! beep
+  }
+}
+
+bool chip8::step() { return decode_execute(fetch()); }
+
+bool chip8::loop() {
+  // derive cpu cycles and timer ticks from the wall clock so both are
+  // independent of the frame rate
+  uint32_t now = get_ticks();
+  if (!timing_init) {
+    last_time = now;
+    timing_init = true;
+  }
+  uint32_t elapsed = now - last_time;
+  last_time = now;
+  if (elapsed > MAX_ELAPSED_MS) {
+    elapsed = MAX_ELAPSED_MS;
+  }
+
+  // delay/sound timers run at a fixed 60 hz
+  timer_accum += elapsed;
+  while (timer_accum >= TIMER_PERIOD_MS) {
+    tick_timers();
+    timer_accum -= TIMER_PERIOD_MS;
+  }
+
+  // cpu runs a fixed number of cycles per unit of wall time
+  uint32_t cycles = (elapsed * CPU_HZ) / 1000;
+  bool redraw = false;
+  for (uint32_t i = 0; i < cycles; i++) {
+    if (step()) {
+      redraw = true;
+    }
   }
   return redraw;
 }
@@ -112,12 +156,12 @@ bool chip8::load(uint8_t *rom, uint16_t size) {
   return true;
 }
 
-void chip8::key_press(int k) { keyboard[k] = true; }
+void chip8::key_press(int k) { keyboard[k & 0xf] = true; }
 
-void chip8::key_release(int k) { keyboard[k] = false; }
+void chip8::key_release(int k) { keyboard[k & 0xf] = false; }
 
 uint16_t chip8::fetch() {
-  uint16_t opcode = (memory[pc & 0xfff] << 8) + memory[(pc & 0xfff) + 1];
+  uint16_t opcode = (memory[pc & 0xfff] << 8) + memory[(pc + 1) & 0xfff];
   pc += 2;
   return opcode;
 }
@@ -182,7 +226,11 @@ bool chip8::decode_execute(uint16_t opcode) {
     }
     break;
   case 0x05:
-    // SE Vx, Vy
+    // SE Vx, Vy (only 5XY0 is defined)
+    if (_n != 0) {
+      exception = EXCEPTION_UNKNOWN_OPCODE;
+      break;
+    }
     if (reg[_x] == reg[_y]) {
       pc += 2;
     }
@@ -213,40 +261,54 @@ bool chip8::decode_execute(uint16_t opcode) {
       // XOR Vx, Vy
       reg[_x] ^= reg[_y];
       break;
-    case 0x4:
-      // ADD Vx, Vy
-      reg[CARRY] = (reg[_x] > UINT8_MAX - reg[_y]);
-      reg[_x] += reg[_y];
+    case 0x4: {
+      // ADD Vx, Vy: VF = carry. capture the operands first so VF can
+      // safely be either Vx or Vy.
+      uint8_t vx = reg[_x], vy = reg[_y];
+      uint16_t sum = (uint16_t)vx + vy;
+      reg[_x] = (uint8_t)sum;
+      reg[CARRY] = (sum > 0xff);
       break;
-    case 0x5:
-      // SUB Vx, Vy
-      reg[CARRY] = (reg[_x] > reg[_y]);
-      reg[_x] -= reg[_y];
+    }
+    case 0x5: {
+      // SUB Vx, Vy: VF = 1 when there is no borrow (Vx >= Vy)
+      uint8_t vx = reg[_x], vy = reg[_y];
+      reg[_x] = (uint8_t)(vx - vy);
+      reg[CARRY] = (vx >= vy);
       break;
-    case 0x6:
-      // SHR Vx {, Vy}
-      reg[CARRY] = (reg[_x] & 0b00000001);
-      //??? reg[_x] = reg[_y] >> 1;
-      reg[_x] >>= 1;
+    }
+    case 0x6: {
+      // SHR Vx {, Vy}: chip-48 uses Vx only, Vy is ignored
+      uint8_t vx = reg[_x];
+      reg[_x] = (uint8_t)(vx >> 1);
+      reg[CARRY] = (vx & 0x01);
       break;
-    case 0x7:
-      // SUBN Vx, Vy
-      reg[CARRY] = (reg[_y] > reg[_x]);
-      reg[_x] = reg[_y] - reg[_x];
+    }
+    case 0x7: {
+      // SUBN Vx, Vy: VF = 1 when there is no borrow (Vy >= Vx)
+      uint8_t vx = reg[_x], vy = reg[_y];
+      reg[_x] = (uint8_t)(vy - vx);
+      reg[CARRY] = (vy >= vx);
       break;
-    case 0xe:
-      // SHL Vx {, Vy}
-      reg[CARRY] = (reg[_x] >> 7);
-      //??? reg[_x] = reg[_y] << 1;
-      reg[_x] <<= 1;
+    }
+    case 0xe: {
+      // SHL Vx {, Vy}: chip-48 uses Vx only, Vy is ignored
+      uint8_t vx = reg[_x];
+      reg[_x] = (uint8_t)(vx << 1);
+      reg[CARRY] = (vx >> 7);
       break;
+    }
     default:
       exception = EXCEPTION_UNKNOWN_OPCODE;
       break;
     }
     break;
   case 0x09:
-    // SNE Vx, Vy
+    // SNE Vx, Vy (only 9XY0 is defined)
+    if (_n != 0) {
+      exception = EXCEPTION_UNKNOWN_OPCODE;
+      break;
+    }
     if (reg[_x] != reg[_y]) {
       pc += 2;
     }
@@ -260,11 +322,12 @@ bool chip8::decode_execute(uint16_t opcode) {
     pc = _nnn + reg[0];
     break;
   case 0x0c:
-    // RND Vx, byte
-    reg[_x] = (rand() % 255) % _nn;
+    // RND Vx, byte: random byte AND NN (never modulo, which divides by
+    // zero when NN == 0)
+    reg[_x] = (rand() & 0xff) & _nn;
     break;
   case 0x0d:
-    // DRW Vx, Vy, nibble
+    // DRW Vx, Vy, nibble (chip-48: coordinates wrap at the screen edges)
     reg[CARRY] = false;
     for (int pos_y = 0; pos_y < _n; pos_y++) {
       for (int pos_x = 0; pos_x < 8; pos_x++) {
@@ -287,13 +350,13 @@ bool chip8::decode_execute(uint16_t opcode) {
     switch (_nn) {
     case 0x9E:
       // SKP Vx
-      if (keyboard[reg[_x]]) {
+      if (keyboard[reg[_x] & 0xf]) {
         pc += 2;
       }
       break;
     case 0xA1:
       // SKNP Vx
-      if (!keyboard[reg[_x]]) {
+      if (!keyboard[reg[_x] & 0xf]) {
         pc += 2;
       }
       break;
@@ -314,8 +377,10 @@ bool chip8::decode_execute(uint16_t opcode) {
         bool keyp = false;
         for (uint8_t i = 0; i < sizeof(keyboard); i++) {
           if (keyboard[i]) {
+            // take the first key that is down and stop waiting
             reg[_x] = i;
             keyp = true;
+            break;
           }
         }
         if (!keyp) {
@@ -331,10 +396,14 @@ bool chip8::decode_execute(uint16_t opcode) {
       // LD ST, Vx
       sound_timer = reg[_x];
       break;
-    case 0x1e:
-      // ADD I, Vx
-      index += reg[_x];
+    case 0x1e: {
+      // ADD I, Vx: VF is set when I overflows past 0xfff (undocumented,
+      // used by some ROMs and checked by chip8-test-rom)
+      uint16_t sum = index + reg[_x];
+      reg[CARRY] = (sum > 0xfff);
+      index = sum;
       break;
+    }
     case 0x29:
       // LD F, Vx
       index = FONT_ADDRESS + (reg[_x] * 5);
@@ -344,21 +413,18 @@ bool chip8::decode_execute(uint16_t opcode) {
       set_RAM(index, (reg[_x] / 100));
       set_RAM(index + 1, (reg[_x] % 100) / 10);
       set_RAM(index + 2, (reg[_x] % 10) / 1);
-      //??? index +=3;
       break;
     case 0x55:
-      // LD [I], Vx
+      // LD [I], Vx (chip-48: I is not incremented afterwards)
       for (int i = 0; i <= _x; i++) {
         set_RAM(index + i, reg[i]);
       }
-      //??? index += _x + 1;
       break;
     case 0x65:
-      //  LD Vx, [I]
+      // LD Vx, [I] (chip-48: I is not incremented afterwards)
       for (int i = 0; i <= _x; i++) {
         reg[i] = get_RAM(index + i);
       }
-      //??? index += _x + 1;
       break;
     default:
       exception = EXCEPTION_UNKNOWN_OPCODE;
